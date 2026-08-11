@@ -63,14 +63,16 @@
 
     <!-- Paths to the libraries that contain device specific key handlers -->
     <string-array name="config_deviceKeyHandlerLibs" translatable="false">
-    </string-array>
+    <item>/system_ext/app/KeyHandler/KeyHandler.apk</item>
+</string-array>
 
     <!-- Names of the key handler classes -->
     <string-array name="config_deviceKeyHandlerClasses" translatable="false">
-    </string-array>
+    <item>org.lineageos.settings.device.KeyHandler</item>
+</string-array>
 
     <!-- Whether device has physical tri state switch -->
-    <bool name="config_hasAlertSlider">false</bool>
+    <bool name="config_hasAlertSlider">true</bool>
 
     <!-- The location of the devices physical tri state switch
          0: Left side
@@ -78,7 +80,7 @@
     <integer name="config_alertSliderLocation">0</integer>
 
     <!-- Whether key handler sends intent when changing slider position -->
-    <string name="config_alertSliderIntent"></string>
+    <string name="config_alertSliderIntent">org.lineageos.settings.UPDATE_SETTINGS</string>
 
     <!-- Defines the sysfs attribute path used by pocket bridge
          to communicate pocket state to the pocket judge kernel driver. -->
