@@ -19,6 +19,7 @@ package com.android.systemui.voltage;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -49,10 +50,15 @@ public class BatteryInfoNotificationController implements CoreStartable {
 
     private static final String CHANNEL_ID = "battery_info_stats";
     private static final int NOTIF_ID = 0x560000BA;
+    private static final String SETTINGS_PACKAGE = "com.android.settings";
+    private static final String EXTRA_SHOW_FRAGMENT = ":settings:show_fragment";
+    private static final String DETAILED_BATTERY_STATS_FRAGMENT =
+            "com.android.settings.fuelgauge.batteryusage.DetailedBatteryStats";
     private static final long POLL_INTERVAL_MS = 6_000;
     private static final long STATS_THROTTLE_MS = 10_000;
     private static final long MAX_PLAUSIBLE_MA = 30_000L;
     private static final long CURRENT_ROUND_MA = 25L;
+    private static final long SIGN_SAMPLE_MIN_MA = 50L;
     private static final long RATE_WINDOW_MS = 60_000L;
     private static final int RATE_CURRENT_SAMPLES_MAX = 24;
 
@@ -68,6 +74,9 @@ public class BatteryInfoNotificationController implements CoreStartable {
 
     private final int mCurrentSign;
     private final int mCurrentDivisor;
+
+    private int mRawSignDischarging;
+    private int mRawSignCharging;
 
     private volatile int mVoltageMv;
     private volatile int mTemperature;
@@ -439,11 +448,21 @@ public class BatteryInfoNotificationController implements CoreStartable {
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
                 .setShowWhen(false)
-                .setVisibility(Notification.VISIBILITY_PUBLIC);
+                .setVisibility(Notification.VISIBILITY_PUBLIC)
+                .setContentIntent(createDetailedStatsPendingIntent());
         if (hasBody) {
             builder.setStyle(new Notification.BigTextStyle().bigText(body));
         }
         mNotifManager.notify(NOTIF_ID, builder.build());
+    }
+
+    private PendingIntent createDetailedStatsPendingIntent() {
+        final Intent intent = new Intent()
+                .setClassName(SETTINGS_PACKAGE, "com.android.settings.SubSettings")
+                .putExtra(EXTRA_SHOW_FRAGMENT, DETAILED_BATTERY_STATS_FRAGMENT)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        return PendingIntent.getActivity(mContext, 0, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
     private String buildNowLine() {
@@ -532,9 +551,30 @@ public class BatteryInfoNotificationController implements CoreStartable {
                 BatteryManager.BATTERY_PROPERTY_CURRENT_NOW);
         if (raw == Long.MIN_VALUE) return mCurrentMa;
         final long divisor = mCurrentDivisor != 0 ? mCurrentDivisor : 1;
-        final long mA = (raw * mCurrentSign) / divisor;
-        if (Math.abs(mA) > MAX_PLAUSIBLE_MA) return mCurrentMa;
+        final long rawMa = raw / divisor;
+        if (Math.abs(rawMa) > MAX_PLAUSIBLE_MA) return mCurrentMa;
+        final long mA = signedCurrentMa(rawMa);
         return Math.round((double) mA / CURRENT_ROUND_MA) * CURRENT_ROUND_MA;
+    }
+
+    private long signedCurrentMa(long rawMa) {
+        if (Math.abs(rawMa) >= SIGN_SAMPLE_MIN_MA) {
+            if (mPlugged == 0) {
+                mRawSignDischarging = rawMa > 0 ? 1 : -1;
+            } else if (mStatus == BatteryManager.BATTERY_STATUS_CHARGING) {
+                mRawSignCharging = rawMa > 0 ? 1 : -1;
+            }
+        }
+        if (mRawSignDischarging != 0 && mRawSignDischarging == mRawSignCharging) {
+            return mPlugged != 0 ? Math.abs(rawMa) : -Math.abs(rawMa);
+        }
+        if (mRawSignDischarging != 0) {
+            return rawMa * -mRawSignDischarging;
+        }
+        if (mRawSignCharging != 0) {
+            return rawMa * mRawSignCharging;
+        }
+        return rawMa * mCurrentSign;
     }
 
     private int readLevel(Intent intent) {
