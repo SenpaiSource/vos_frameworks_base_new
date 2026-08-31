@@ -39,18 +39,43 @@ public class RichTapVibratorService {
     private final IRichtapCallback mCallback;
     private volatile IRichtapVibrator sRichtapVibratorService = null;
 
+    /**
+     * Proactively initializes the connection to the RichTap vibrator service.
+     */
+    public void init() {
+        getRichtapService();
+    }
+
     @Nullable
     private synchronized IRichtapVibrator getRichtapService() {
+        if (sRichtapVibratorService != null) {
+            IBinder binder = sRichtapVibratorService.asBinder();
+            if (!binder.isBinderAlive() || !binder.pingBinder()) {
+                Slog.w(TAG, "RichTap service binder is dead, clearing proxy");
+                sRichtapVibratorService = null;
+            }
+        }
+
         if (sRichtapVibratorService == null) {
-            if (DEBUG) Slog.d(TAG, "vibratorDescriptor: " + VIBRATOR_DESCRIPTOR);
+            if (DEBUG) Slog.d(TAG, "Connecting to vibrator service: " + VIBRATOR_DESCRIPTOR);
 
-            IVibrator vibratorHalService = IVibrator.Stub.asInterface(
-                    ServiceManager.getService(VIBRATOR_DESCRIPTOR));
+            IBinder halBinder;
+            if (ServiceManager.isDeclared(VIBRATOR_DESCRIPTOR)) {
+                halBinder = Binder.allowBlocking(
+                        ServiceManager.waitForDeclaredService(VIBRATOR_DESCRIPTOR));
+            } else {
+                halBinder = ServiceManager.getService(VIBRATOR_DESCRIPTOR);
+                if (halBinder != null) {
+                    halBinder = Binder.allowBlocking(halBinder);
+                }
+            }
 
-            if (vibratorHalService == null) {
-                Slog.w(TAG, "Failed to get HAL service");
+            if (halBinder == null) {
+                Slog.w(TAG, "Failed to get HAL service binder for " + VIBRATOR_DESCRIPTOR);
                 return null;
             }
+
+            IVibrator vibratorHalService = IVibrator.Stub.asInterface(halBinder);
 
             if (DEBUG) {
                 try {
@@ -61,15 +86,20 @@ public class RichTapVibratorService {
             }
 
             try {
-                IBinder binder = vibratorHalService.asBinder().getExtension();
-                if (binder != null) {
-                    sRichtapVibratorService = IRichtapVibrator.Stub.asInterface(
-                            Binder.allowBlocking(binder));
-                    binder.linkToDeath(new VibHalDeathRecipient(this), 0);
+                IBinder extBinder = halBinder.getExtension();
+                if (extBinder != null) {
+                    extBinder = Binder.allowBlocking(extBinder);
+                    IRichtapVibrator richtapService = IRichtapVibrator.Stub.asInterface(extBinder);
+                    VibHalDeathRecipient deathRecipient = new VibHalDeathRecipient(this);
                     try {
-                        sRichtapVibratorService.init(mCallback);
+                        halBinder.linkToDeath(deathRecipient, 0);
+                        extBinder.linkToDeath(deathRecipient, 0);
+                        richtapService.init(mCallback);
+                        sRichtapVibratorService = richtapService;
+                        Slog.i(TAG, "RichTap service connected and initialized successfully");
                     } catch (Exception e) {
-                        Slog.w(TAG, "Failed to init RichTap service with callback", e);
+                        Slog.e(TAG, "Failed to init RichTap service or link death recipient", e);
+                        sRichtapVibratorService = null;
                     }
                 } else {
                     Slog.e(TAG, "Extension binder is null");
@@ -113,7 +143,47 @@ public class RichTapVibratorService {
             }
         } catch (Exception e) {
             Slog.e(TAG, "Failed to execute vibratorOn", e);
+            resetHalServiceProxy();
         }
+    }
+
+    /**
+     * Turns the RichTap vibrator off, interrupting any in-progress {@code on}/{@code performHe}
+     * pattern. This must be called from {@link HalVibrator#off()} - otherwise a RichTap-driven
+     * vibration cannot be cancelled early and will always run to completion.
+     *
+     * <p>Calls both {@code stop()} and {@code off()} on the vendor extension: the upstream AIDL
+     * doc comment for {@code IRichtapVibrator#off} literally says "do nothing", while
+     * {@code stop} is documented as the "interface for short latency" - i.e. the one actually
+     * meant to interrupt in-flight playback. Both are {@code oneway} (fire-and-forget), so
+     * calling both costs one extra async binder transaction, not a blocking round trip.
+     */
+    public void richTapVibratorOff() {
+        try {
+            IRichtapVibrator service = getRichtapService();
+            if (service != null) {
+                if (DEBUG) Slog.d(TAG, "Executing vibratorOff");
+                service.stop(mCallback);
+                service.off(mCallback);
+            }
+        } catch (Exception e) {
+            Slog.e(TAG, "Failed to execute vibratorOff", e);
+            resetHalServiceProxy();
+        }
+    }
+
+    /**
+     * Returns {@code true} if the RichTap vendor extension is currently reachable.
+     *
+     * <p>This can return {@code false} even when the device is configured to use RichTap (e.g.
+     * {@code config_usesRichtapVibration} is {@code true}) if the vendor extension binder is not
+     * yet available (for example, early in boot) or has died and not yet reconnected. Callers
+     * should treat a {@code false} result as "fall back to the standard vibrator HAL for this
+     * call" rather than a permanent failure, since this is re-checked (and retried) on every
+     * call.
+     */
+    public boolean isAvailable() {
+        return getRichtapService() != null;
     }
 
     public void richTapVibratorSetAmplitude(int amplitude) {
@@ -125,6 +195,7 @@ public class RichTapVibratorService {
             }
         } catch (Exception e) {
             Slog.e(TAG, "Failed to set amplitude", e);
+            resetHalServiceProxy();
         }
     }
 
@@ -140,6 +211,7 @@ public class RichTapVibratorService {
             }
         } catch (Exception e) {
             Slog.e(TAG, "Failed to execute raw pattern", e);
+            resetHalServiceProxy();
         }
     }
 
