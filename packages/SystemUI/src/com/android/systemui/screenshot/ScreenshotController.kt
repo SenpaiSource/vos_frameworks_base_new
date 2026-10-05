@@ -31,6 +31,7 @@ import android.graphics.Rect
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Process
+import android.os.RichTapVibrationEffect
 import android.os.UserHandle
 import android.os.UserManager
 import android.os.VibrationEffect
@@ -491,24 +492,32 @@ internal constructor(
     }
 
     private fun playScreenshotSound() {
-        var playSound = false
-        when (audioManager.ringerMode) {
-            AudioManager.RINGER_MODE_SILENT -> {
-                // do nothing
-            }
-            AudioManager.RINGER_MODE_VIBRATE -> {
-                vibrator?.takeIf { it.hasVibrator() }?.vibrate(
-                    VibrationEffect.createOneShot(
-                        50,
-                        VibrationEffect.DEFAULT_AMPLITUDE
+        val usesRichtap = context.resources.getBoolean(
+            com.android.internal.R.bool.config_usesRichtapVibration
+        )
+        if (usesRichtap) {
+            vibrator?.takeIf { it.hasVibrator() }?.vibrate(
+                VibrationEffect.get(RichTapVibrationEffect.EFFECT_OOS_SCREENSHOT, false)
+            )
+        } else {
+            when (audioManager.ringerMode) {
+                AudioManager.RINGER_MODE_SILENT -> {
+                    // do nothing
+                }
+                AudioManager.RINGER_MODE_VIBRATE -> {
+                    vibrator?.takeIf { it.hasVibrator() }?.vibrate(
+                        VibrationEffect.createOneShot(
+                            50,
+                            VibrationEffect.DEFAULT_AMPLITUDE
+                        )
                     )
-                )
-            }
-            AudioManager.RINGER_MODE_NORMAL -> {
-                // in this case we want to play sound even if not forced on
-                playSound = true
+                }
+                AudioManager.RINGER_MODE_NORMAL -> {
+                    // in this case we want to play sound even if not forced on
+                }
             }
         }
+        val playSound = audioManager.ringerMode == AudioManager.RINGER_MODE_NORMAL
         if (playSound && Settings.System.getIntForUser(
                 context.contentResolver,
                 Settings.System.SCREENSHOT_SHUTTER_SOUND,

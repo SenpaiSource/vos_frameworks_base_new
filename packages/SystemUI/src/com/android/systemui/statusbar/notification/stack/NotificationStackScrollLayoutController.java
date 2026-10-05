@@ -36,8 +36,11 @@ import android.graphics.Point;
 import android.graphics.RectF;
 import android.graphics.RenderEffect;
 import android.graphics.Shader;
+import android.os.RichTapVibrationEffect;
 import android.os.Trace;
 import android.os.UserHandle;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
 import android.provider.Settings;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
@@ -939,8 +942,18 @@ public class NotificationStackScrollLayoutController implements Dumpable {
         mView.setTouchHandler(mTouchHandler);
         mView.setResetUserExpandedStatesRunnable(mNotificationsController::resetUserExpandedStates);
         mView.setClearAllAnimationListener(this::onAnimationEnd);
-        mView.setClearAllListener((selection) -> mUiEventLogger.log(
-                NotificationPanelEvent.fromSelection(selection)));
+        mView.setClearAllListener((selection) -> {
+            mUiEventLogger.log(
+                    NotificationPanelEvent.fromSelection(selection));
+            if (mContext.getResources().getBoolean(
+                    com.android.internal.R.bool.config_usesRichtapVibration)) {
+                Vibrator vib = mContext.getSystemService(Vibrator.class);
+                if (vib != null) {
+                    vib.vibrate(VibrationEffect.get(
+                            RichTapVibrationEffect.EFFECT_OOS_CLEAR_NOTIFICATIONS, false));
+                }
+            }
+        });
         mView.setClearAllFinishedWhilePanelExpandedRunnable(() -> {
             final Runnable doCollapseRunnable = () ->
                     mShadeController.animateCollapseShade(CommandQueue.FLAG_EXCLUDE_NONE);
