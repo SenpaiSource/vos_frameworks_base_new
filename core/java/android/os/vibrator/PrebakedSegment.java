@@ -32,6 +32,7 @@ import android.annotation.Nullable;
 import android.annotation.TestApi;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.os.RichTapVibrationEffect;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.os.VibratorInfo;
@@ -95,12 +96,18 @@ public final class PrebakedSegment extends VibrationEffectSegment {
 
     @Override
     public long getDuration() {
+        if (RichTapVibrationEffect.isOosEffect(mEffectId)) {
+            return RichTapVibrationEffect.getInnerEffectDuration(mEffectId);
+        }
         return -1;
     }
 
     /** @hide */
     @Override
     public long getDuration(@Nullable VibratorInfo vibratorInfo) {
+        if (RichTapVibrationEffect.isOosEffect(mEffectId)) {
+            return RichTapVibrationEffect.getInnerEffectDuration(mEffectId);
+        }
         if (vibratorInfo == null) {
             return getDuration();
         }
@@ -127,6 +134,9 @@ public final class PrebakedSegment extends VibrationEffectSegment {
     /** @hide */
     @Override
     public boolean areVibrationFeaturesSupported(@NonNull VibratorInfo vibratorInfo) {
+        if (RichTapVibrationEffect.isOosEffect(mEffectId)) {
+            return true;
+        }
         if (vibratorInfo.isEffectSupported(mEffectId) == Vibrator.VIBRATION_EFFECT_SUPPORT_YES) {
             return true;
         }
@@ -150,6 +160,9 @@ public final class PrebakedSegment extends VibrationEffectSegment {
     /** @hide */
     @Override
     public boolean isHapticFeedbackCandidate() {
+        if (RichTapVibrationEffect.isOosTouchEffect(mEffectId)) {
+            return true;
+        }
         return switch (mEffectId) {
             case EFFECT_CLICK,
                  EFFECT_DOUBLE_CLICK,
@@ -225,6 +238,9 @@ public final class PrebakedSegment extends VibrationEffectSegment {
             case EFFECT_TICK:
                 break;
             default:
+                if (RichTapVibrationEffect.isOosEffect(mEffectId)) {
+                    break;
+                }
                 int[] ringtones = VibrationEffect.RINGTONES;
                 if (mEffectId < ringtones[0] || mEffectId > ringtones[ringtones.length - 1]) {
                     throw new IllegalArgumentException(
