@@ -19,6 +19,7 @@ package com.android.server.vibrator;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.content.res.Resources;
+import android.os.RichTapVibrationEffect;
 import android.os.VibrationAttributes;
 import android.os.VibrationEffect;
 import android.os.VibratorInfo;
@@ -50,6 +51,7 @@ public final class HapticFeedbackVibrationProvider {
 
     private final VibratorInfo mVibratorInfo;
     private final boolean mHapticTextHandleEnabled;
+    private final boolean mUsesRichtapVibration;
 
     private final HapticFeedbackCustomization mHapticFeedbackCustomization;
 
@@ -65,6 +67,8 @@ public final class HapticFeedbackVibrationProvider {
         mVibratorInfo = vibratorInfo;
         mHapticTextHandleEnabled = res.getBoolean(
                 com.android.internal.R.bool.config_enableHapticTextHandle);
+        mUsesRichtapVibration = res.getBoolean(
+                com.android.internal.R.bool.config_usesRichtapVibration);
         mHapticFeedbackCustomization = hapticFeedbackCustomization;
 
         mKeyboardVibrationFixedAmplitude = res.getFloat(
@@ -209,6 +213,7 @@ public final class HapticFeedbackVibrationProvider {
     /** Dumps relevant state. */
     public void dump(String prefix, PrintWriter pw) {
         pw.print("mHapticTextHandleEnabled="); pw.println(mHapticTextHandleEnabled);
+        pw.print("mUsesRichtapVibration="); pw.println(mUsesRichtapVibration);
     }
 
     private boolean isFeedbackConstantEnabled(int effectId) {
@@ -225,6 +230,12 @@ public final class HapticFeedbackVibrationProvider {
      */
     @Nullable
     private VibrationEffect getVibrationForHapticFeedback(int effectId) {
+        if (mUsesRichtapVibration) {
+            VibrationEffect richTapEffect = getRichTapVibrationForHapticFeedback(effectId);
+            if (richTapEffect != null) {
+                return richTapEffect;
+            }
+        }
         switch (effectId) {
             case HapticFeedbackConstants.CONTEXT_CLICK:
             case HapticFeedbackConstants.GESTURE_END:
@@ -294,6 +305,78 @@ public final class HapticFeedbackVibrationProvider {
                         VibrationEffect.EFFECT_TEXTURE_TICK);
 
             case HapticFeedbackConstants.NO_HAPTICS:
+            default:
+                return null;
+        }
+    }
+
+    @Nullable
+    private VibrationEffect getRichTapVibrationForHapticFeedback(int effectId) {
+        switch (effectId) {
+            case HapticFeedbackConstants.KEYBOARD_TAP:
+                return VibrationEffect.get(RichTapVibrationEffect.EFFECT_OOS_GRANULAR_STRONG, false);
+            case HapticFeedbackConstants.KEYBOARD_RELEASE:
+                return VibrationEffect.get(RichTapVibrationEffect.EFFECT_OOS_MICRO_TICK, false);
+
+            case HapticFeedbackConstants.VIRTUAL_KEY:
+                return VibrationEffect.get(RichTapVibrationEffect.EFFECT_OOS_VIRTUAL_KEY, false);
+            case HapticFeedbackConstants.VIRTUAL_KEY_RELEASE:
+                return VibrationEffect.get(RichTapVibrationEffect.EFFECT_OOS_MICRO_TICK, false);
+
+            case HapticFeedbackConstants.LONG_PRESS:
+            case HapticFeedbackConstants.LONG_PRESS_POWER_BUTTON:
+            case HapticFeedbackConstants.DRAG_START:
+            case HapticFeedbackConstants.CONFIRM:
+                return VibrationEffect.get(RichTapVibrationEffect.EFFECT_OOS_WEAK_SHORT, false);
+
+            case HapticFeedbackConstants.DRAG_CROSSING:
+            case HapticFeedbackConstants.SCROLL_TICK:
+            case HapticFeedbackConstants.SCROLL_ITEM_FOCUS:
+            case HapticFeedbackConstants.SEGMENT_FREQUENT_TICK:
+                return VibrationEffect.get(RichTapVibrationEffect.EFFECT_OOS_MICRO_TICK, false);
+
+            case HapticFeedbackConstants.SCROLL_LIMIT:
+                return VibrationEffect.get(RichTapVibrationEffect.EFFECT_OOS_VOICE_LEVEL_EDGE, false);
+
+            case HapticFeedbackConstants.EDGE_SQUEEZE:
+                return VibrationEffect.get(RichTapVibrationEffect.EFFECT_OOS_GRANULAR_WEAK, false);
+            case HapticFeedbackConstants.EDGE_RELEASE:
+                return VibrationEffect.get(RichTapVibrationEffect.EFFECT_OOS_WEAKEST_SHORT, false);
+
+            case HapticFeedbackConstants.SEGMENT_TICK:
+                return VibrationEffect.get(RichTapVibrationEffect.EFFECT_OOS_STEPABLE_REGULATE, false);
+
+            case HapticFeedbackConstants.REJECT:
+            case HapticFeedbackConstants.BIOMETRIC_REJECT:
+                return VibrationEffect.get(RichTapVibrationEffect.EFFECT_OOS_MODERATE_SHORT_TWICE, false);
+
+            case HapticFeedbackConstants.BIOMETRIC_CONFIRM:
+                return VibrationEffect.get(RichTapVibrationEffect.EFFECT_OOS_CUSTOMIZED_THREE_DIMENSION_TOUCH, false);
+
+            case HapticFeedbackConstants.GESTURE_START:
+            case HapticFeedbackConstants.GESTURE_THRESHOLD_DEACTIVATE:
+                return VibrationEffect.get(RichTapVibrationEffect.EFFECT_OOS_GRANULAR_WEAK, false);
+
+            case HapticFeedbackConstants.GESTURE_END:
+            case HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE:
+            case HapticFeedbackConstants.TOGGLE_ON:
+            case HapticFeedbackConstants.TOGGLE_OFF:
+                return VibrationEffect.get(RichTapVibrationEffect.EFFECT_OOS_GRANULAR_STRONG, false);
+
+            case HapticFeedbackConstants.CALENDAR_DATE:
+                return VibrationEffect.get(RichTapVibrationEffect.EFFECT_OOS_MODERATE_SHORT, false);
+
+            case HapticFeedbackConstants.CONTEXT_CLICK:
+            case HapticFeedbackConstants.CLOCK_TICK:
+            case HapticFeedbackConstants.TEXT_HANDLE_MOVE:
+                return VibrationEffect.get(RichTapVibrationEffect.EFFECT_OOS_WEAKEST_SHORT, false);
+
+            case HapticFeedbackConstants.ASSISTANT_BUTTON:
+                return VibrationEffect.get(RichTapVibrationEffect.EFFECT_OOS_VOICE_ASSISTANT, false);
+
+            case HapticFeedbackConstants.SAFE_MODE_ENABLED:
+                return VibrationEffect.get(RichTapVibrationEffect.EFFECT_OOS_LONG_VIBRATE, false);
+
             default:
                 return null;
         }
