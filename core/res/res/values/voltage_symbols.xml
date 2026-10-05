@@ -88,6 +88,10 @@
     <java-symbol type="string" name="config_oemFastChargerStatusPath2" />
     <!-- Expected value from fast charging status file -->
     <java-symbol type="string" name="config_oemFastChargerStatusValue" />
+    <!-- Path to battery maximum capacity sysfs file -->
+    <java-symbol type="string" name="config_batteryMaximumCapacityPath" />
+    <!-- Path to battery state of health (SOH) sysfs file -->
+    <java-symbol type="string" name="config_batterySohPath" />
 
     <!-- Lock gesture -->
     <java-symbol type="string" name="gesture_locked_warning" />
