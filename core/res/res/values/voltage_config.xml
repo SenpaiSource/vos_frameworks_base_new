@@ -168,4 +168,7 @@
 
     <!-- Whether device has physical tri state switch -->
     <bool name="config_hasAlertSlider">false</bool>
+
+    <!-- Whether the device supports RichTap vibrator -->
+    <bool name="config_usesRichtapVibration">false</bool>
 </resources>
