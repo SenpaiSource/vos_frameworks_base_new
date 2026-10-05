@@ -18,6 +18,7 @@ package com.android.server.vibrator;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.content.Context;
 import android.hardware.vibrator.HapticGeneratorConfig;
 import android.hardware.vibrator.IVibrationSession;
 import android.hardware.vibrator.IVibrator;
@@ -54,20 +55,29 @@ class VintfHalVibratorManager {
     /** Create {@link HalVibratorManager} based on declared services on device. */
     static HalVibratorManager createHalVibratorManager(
             Handler handler, HalNativeHandler nativeHandler) {
+        return createHalVibratorManager(null, handler, nativeHandler);
+    }
+
+    static HalVibratorManager createHalVibratorManager(
+            @Nullable Context context, Handler handler, HalNativeHandler nativeHandler) {
         if (ServiceManager.isDeclared(IVibratorManager.DESCRIPTOR + "/default")) {
             Slog.v(TAG, "Loading default IVibratorManager service.");
             VintfSupplier<IVibratorManager> managerSupplier = new DefaultVibratorManagerSupplier();
             IntFunction<HalVibrator> vibratorFactory =
-                    vibratorId -> new DefaultHalVibrator(vibratorId,
-                            new ManagedVibratorSupplier(vibratorId, managerSupplier), handler,
-                            nativeHandler);
+                    vibratorId -> RichTapHalVibrator.wrapIfNeeded(context,
+                            new DefaultHalVibrator(vibratorId,
+                                    new ManagedVibratorSupplier(vibratorId, managerSupplier), handler,
+                                    nativeHandler),
+                            handler);
             return new DefaultHalVibratorManager(managerSupplier, nativeHandler, vibratorFactory);
         }
         if (ServiceManager.isDeclared(IVibrator.DESCRIPTOR + "/default")) {
             Slog.v(TAG, "Loading default IVibrator service.");
             return new LegacyHalVibratorManager(
-                    new DefaultHalVibrator(DEFAULT_VIBRATOR_ID, new DefaultVibratorSupplier(),
-                            handler, nativeHandler),
+                    RichTapHalVibrator.wrapIfNeeded(context,
+                            new DefaultHalVibrator(DEFAULT_VIBRATOR_ID, new DefaultVibratorSupplier(),
+                                    handler, nativeHandler),
+                            handler),
                     nativeHandler);
         }
         Slog.v(TAG, "No default services declared for IVibratorManager or IVibrator."
