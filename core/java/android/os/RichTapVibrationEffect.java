@@ -477,13 +477,13 @@ public final class RichTapVibrationEffect {
     public static int getInnerEffectStrength(int strength) {
         switch (strength) {
             case VibrationEffect.EFFECT_STRENGTH_LIGHT:
-                return 150;
+                return 69;
             case VibrationEffect.EFFECT_STRENGTH_MEDIUM:
-                return 200;
+                return 89;
             case VibrationEffect.EFFECT_STRENGTH_STRONG:
-                return 250;
+                return 99;
             default:
-                return 200;
+                return 89;
         }
     }
 }

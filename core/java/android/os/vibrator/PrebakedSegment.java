@@ -134,11 +134,11 @@ public final class PrebakedSegment extends VibrationEffectSegment {
     /** @hide */
     @Override
     public boolean areVibrationFeaturesSupported(@NonNull VibratorInfo vibratorInfo) {
-        if (RichTapVibrationEffect.isOosEffect(mEffectId)) {
-            return true;
-        }
         if (vibratorInfo.isEffectSupported(mEffectId) == Vibrator.VIBRATION_EFFECT_SUPPORT_YES) {
             return true;
+        }
+        if (RichTapVibrationEffect.isOosEffect(mEffectId)) {
+            return false;
         }
         if (!mFallback) {
             // If the Vibrator's support is not `VIBRATION_EFFECT_SUPPORT_YES`, and this effect does

@@ -21,6 +21,7 @@ import android.annotation.Nullable;
 import android.hardware.vibrator.IVibrator;
 import android.os.Binder;
 import android.os.IBinder;
+import android.os.Parcel;
 import android.os.ServiceManager;
 import android.util.Slog;
 
@@ -30,15 +31,26 @@ import vendor.aac.hardware.richtap.vibrator.IRichtapVibrator;
 /**
  * Service class managing RichTap vibrator HAL extension functionality.
  * Directly communicates with vendor.aac.hardware.richtap.vibrator.IRichtapVibrator
- * via the IVibrator AIDL extension point.
+ * or vendor.oplus.hardware.oplusvibrator.IOplusVibrator via the IVibrator AIDL extension.
  */
 public class RichTapVibratorService {
     private static final String TAG = "RichTapVibratorService";
     private static final String VIBRATOR_DESCRIPTOR = IVibrator.DESCRIPTOR + "/default";
     private static final boolean DEBUG = false;
 
+    private static final int TRANSACTION_INIT = IBinder.FIRST_CALL_TRANSACTION + 0;
+    private static final int TRANSACTION_SET_DYNAMIC_SCALE = IBinder.FIRST_CALL_TRANSACTION + 1;
+    private static final int TRANSACTION_SET_F0 = IBinder.FIRST_CALL_TRANSACTION + 2;
+    private static final int TRANSACTION_STOP = IBinder.FIRST_CALL_TRANSACTION + 3;
+    private static final int TRANSACTION_SET_AMPLITUDE = IBinder.FIRST_CALL_TRANSACTION + 4;
+    private static final int TRANSACTION_OFF = IBinder.FIRST_CALL_TRANSACTION + 6;
+    private static final int TRANSACTION_ON = IBinder.FIRST_CALL_TRANSACTION + 7;
+    private static final int TRANSACTION_PERFORM = IBinder.FIRST_CALL_TRANSACTION + 8;
+
     private final IRichtapCallback mCallback;
     private volatile IRichtapVibrator sRichtapVibratorService = null;
+    private volatile IBinder mExtensionBinder = null;
+    private volatile String mDescriptor = null;
 
     public RichTapVibratorService() {
         this(null);
@@ -48,45 +60,69 @@ public class RichTapVibratorService {
         mCallback = callback;
     }
 
-    @Nullable
-    private synchronized IRichtapVibrator getRichtapService() {
-        if (sRichtapVibratorService != null) {
-            IBinder binder = sRichtapVibratorService.asBinder();
-            if (binder != null && binder.isBinderAlive() && binder.pingBinder()) {
-                return sRichtapVibratorService;
-            }
-            sRichtapVibratorService = null;
+    private synchronized boolean ensureConnectedLocked() {
+        if (mExtensionBinder != null && mExtensionBinder.isBinderAlive() && mExtensionBinder.pingBinder()) {
+            return true;
         }
+        resetHalServiceProxy();
 
         try {
             if (DEBUG) Slog.d(TAG, "Connecting to vibrator HAL service: " + VIBRATOR_DESCRIPTOR);
-            IBinder halBinder = Binder.allowBlocking(
-                    ServiceManager.waitForDeclaredService(VIBRATOR_DESCRIPTOR));
+            IBinder halBinder = Binder.allowBlocking(ServiceManager.checkService(VIBRATOR_DESCRIPTOR));
             if (halBinder == null) {
-                Slog.w(TAG, "Failed to get declared vibrator HAL service: " + VIBRATOR_DESCRIPTOR);
-                return null;
+                halBinder = Binder.allowBlocking(ServiceManager.getService(VIBRATOR_DESCRIPTOR));
+            }
+            if (halBinder == null) {
+                if (DEBUG) Slog.w(TAG, "Vibrator HAL service not yet available: " + VIBRATOR_DESCRIPTOR);
+                return false;
             }
 
             IVibrator vibratorHalService = IVibrator.Stub.asInterface(halBinder);
             if (vibratorHalService == null) {
                 Slog.w(TAG, "Failed to cast HAL binder to IVibrator");
-                return null;
+                return false;
             }
 
             IBinder extensionBinder = vibratorHalService.asBinder().getExtension();
             if (extensionBinder != null) {
-                sRichtapVibratorService = IRichtapVibrator.Stub.asInterface(
-                        Binder.allowBlocking(extensionBinder));
-                extensionBinder.linkToDeath(new VibHalDeathRecipient(this), 0);
-                if (DEBUG) Slog.d(TAG, "Successfully connected to RichTap HAL extension");
+                mExtensionBinder = Binder.allowBlocking(extensionBinder);
+                mDescriptor = mExtensionBinder.getInterfaceDescriptor();
+                if (DEBUG) Slog.d(TAG, "Connected to vibrator HAL extension descriptor: " + mDescriptor);
+
+                if (IRichtapVibrator.DESCRIPTOR.equals(mDescriptor)) {
+                    sRichtapVibratorService = IRichtapVibrator.Stub.asInterface(mExtensionBinder);
+                } else {
+                    sRichtapVibratorService = null;
+                }
+                mExtensionBinder.linkToDeath(new VibHalDeathRecipient(this), 0);
+                initInternalLocked();
+                return true;
             } else {
                 Slog.e(TAG, "RichTap extension binder is null");
             }
         } catch (Exception e) {
             Slog.e(TAG, "Failed to connect to RichTap vibrator extension", e);
         }
+        return false;
+    }
 
-        return sRichtapVibratorService;
+    private void initInternalLocked() {
+        try {
+            if (sRichtapVibratorService != null) {
+                sRichtapVibratorService.init(mCallback);
+            } else if (mExtensionBinder != null && mDescriptor != null) {
+                Parcel data = Parcel.obtain();
+                try {
+                    data.writeInterfaceToken(mDescriptor);
+                    data.writeStrongBinder(mCallback != null ? mCallback.asBinder() : null);
+                    mExtensionBinder.transact(TRANSACTION_INIT, data, null, IBinder.FLAG_ONEWAY);
+                } finally {
+                    data.recycle();
+                }
+            }
+        } catch (Exception e) {
+            Slog.e(TAG, "Failed to initialize RichTap actuator looper", e);
+        }
     }
 
     /**
@@ -98,10 +134,28 @@ public class RichTapVibratorService {
      */
     public int richTapPerform(int effectId, byte strength) {
         try {
-            IRichtapVibrator service = getRichtapService();
-            if (service != null) {
-                if (DEBUG) Slog.d(TAG, "Executing richTapPerform: effectId=" + effectId + ", strength=" + strength);
-                return service.perform(effectId, strength, mCallback);
+            synchronized (this) {
+                if (!ensureConnectedLocked()) return -1;
+                if (sRichtapVibratorService != null) {
+                    if (DEBUG) Slog.d(TAG, "Executing richTapPerform: effectId=" + effectId + ", strength=" + strength);
+                    return sRichtapVibratorService.perform(effectId, strength, mCallback);
+                } else if (mExtensionBinder != null && mDescriptor != null) {
+                    if (DEBUG) Slog.d(TAG, "Executing richTapPerform direct: effectId=" + effectId + ", strength=" + strength);
+                    Parcel data = Parcel.obtain();
+                    Parcel reply = Parcel.obtain();
+                    try {
+                        data.writeInterfaceToken(mDescriptor);
+                        data.writeInt(effectId);
+                        data.writeByte(strength);
+                        data.writeStrongBinder(mCallback != null ? mCallback.asBinder() : null);
+                        mExtensionBinder.transact(TRANSACTION_PERFORM, data, reply, 0);
+                        reply.readException();
+                        return reply.readInt();
+                    } finally {
+                        reply.recycle();
+                        data.recycle();
+                    }
+                }
             }
         } catch (Exception e) {
             Slog.e(TAG, "Failed to execute richTapPerform effectId=" + effectId, e);
@@ -114,10 +168,22 @@ public class RichTapVibratorService {
      */
     public void richTapVibratorOn(long millis) {
         try {
-            IRichtapVibrator service = getRichtapService();
-            if (service != null) {
-                if (DEBUG) Slog.d(TAG, "Executing richTapVibratorOn: " + millis + " ms");
-                service.on((int) millis, mCallback);
+            synchronized (this) {
+                if (!ensureConnectedLocked()) return;
+                if (sRichtapVibratorService != null) {
+                    if (DEBUG) Slog.d(TAG, "Executing richTapVibratorOn: " + millis + " ms");
+                    sRichtapVibratorService.on((int) millis, mCallback);
+                } else if (mExtensionBinder != null && mDescriptor != null) {
+                    Parcel data = Parcel.obtain();
+                    try {
+                        data.writeInterfaceToken(mDescriptor);
+                        data.writeInt((int) millis);
+                        data.writeStrongBinder(mCallback != null ? mCallback.asBinder() : null);
+                        mExtensionBinder.transact(TRANSACTION_ON, data, null, IBinder.FLAG_ONEWAY);
+                    } finally {
+                        data.recycle();
+                    }
+                }
             }
         } catch (Exception e) {
             Slog.e(TAG, "Failed to execute richTapVibratorOn", e);
@@ -129,10 +195,22 @@ public class RichTapVibratorService {
      */
     public void richTapVibratorSetAmplitude(int amplitude) {
         try {
-            IRichtapVibrator service = getRichtapService();
-            if (service != null) {
-                if (DEBUG) Slog.d(TAG, "Setting amplitude: " + amplitude);
-                service.setAmplitude(amplitude, mCallback);
+            synchronized (this) {
+                if (!ensureConnectedLocked()) return;
+                if (sRichtapVibratorService != null) {
+                    if (DEBUG) Slog.d(TAG, "Setting amplitude: " + amplitude);
+                    sRichtapVibratorService.setAmplitude(amplitude, mCallback);
+                } else if (mExtensionBinder != null && mDescriptor != null) {
+                    Parcel data = Parcel.obtain();
+                    try {
+                        data.writeInterfaceToken(mDescriptor);
+                        data.writeInt(amplitude);
+                        data.writeStrongBinder(mCallback != null ? mCallback.asBinder() : null);
+                        mExtensionBinder.transact(TRANSACTION_SET_AMPLITUDE, data, null, IBinder.FLAG_ONEWAY);
+                    } finally {
+                        data.recycle();
+                    }
+                }
             }
         } catch (Exception e) {
             Slog.e(TAG, "Failed to set amplitude", e);
@@ -144,11 +222,30 @@ public class RichTapVibratorService {
      */
     public void richTapVibratorOff() {
         try {
-            IRichtapVibrator service = getRichtapService();
-            if (service != null) {
-                if (DEBUG) Slog.d(TAG, "Executing richTapVibratorOff");
-                service.stop(mCallback);
-                service.off(mCallback);
+            synchronized (this) {
+                if (!ensureConnectedLocked()) return;
+                if (sRichtapVibratorService != null) {
+                    if (DEBUG) Slog.d(TAG, "Executing richTapVibratorOff");
+                    sRichtapVibratorService.stop(mCallback);
+                    sRichtapVibratorService.off(mCallback);
+                } else if (mExtensionBinder != null && mDescriptor != null) {
+                    Parcel dataStop = Parcel.obtain();
+                    try {
+                        dataStop.writeInterfaceToken(mDescriptor);
+                        dataStop.writeStrongBinder(mCallback != null ? mCallback.asBinder() : null);
+                        mExtensionBinder.transact(TRANSACTION_STOP, dataStop, null, IBinder.FLAG_ONEWAY);
+                    } finally {
+                        dataStop.recycle();
+                    }
+                    Parcel dataOff = Parcel.obtain();
+                    try {
+                        dataOff.writeInterfaceToken(mDescriptor);
+                        dataOff.writeStrongBinder(mCallback != null ? mCallback.asBinder() : null);
+                        mExtensionBinder.transact(TRANSACTION_OFF, dataOff, null, IBinder.FLAG_ONEWAY);
+                    } finally {
+                        dataOff.recycle();
+                    }
+                }
             }
         } catch (Exception e) {
             Slog.e(TAG, "Failed to execute richTapVibratorOff", e);
@@ -160,9 +257,21 @@ public class RichTapVibratorService {
      */
     public void setDynamicScale(int scale) {
         try {
-            IRichtapVibrator service = getRichtapService();
-            if (service != null) {
-                service.setDynamicScale(scale, mCallback);
+            synchronized (this) {
+                if (!ensureConnectedLocked()) return;
+                if (sRichtapVibratorService != null) {
+                    sRichtapVibratorService.setDynamicScale(scale, mCallback);
+                } else if (mExtensionBinder != null && mDescriptor != null) {
+                    Parcel data = Parcel.obtain();
+                    try {
+                        data.writeInterfaceToken(mDescriptor);
+                        data.writeInt(scale);
+                        data.writeStrongBinder(mCallback != null ? mCallback.asBinder() : null);
+                        mExtensionBinder.transact(TRANSACTION_SET_DYNAMIC_SCALE, data, null, IBinder.FLAG_ONEWAY);
+                    } finally {
+                        data.recycle();
+                    }
+                }
             }
         } catch (Exception e) {
             Slog.e(TAG, "Failed to set dynamic scale", e);
@@ -174,9 +283,21 @@ public class RichTapVibratorService {
      */
     public void setF0(int f0) {
         try {
-            IRichtapVibrator service = getRichtapService();
-            if (service != null) {
-                service.setF0(f0, mCallback);
+            synchronized (this) {
+                if (!ensureConnectedLocked()) return;
+                if (sRichtapVibratorService != null) {
+                    sRichtapVibratorService.setF0(f0, mCallback);
+                } else if (mExtensionBinder != null && mDescriptor != null) {
+                    Parcel data = Parcel.obtain();
+                    try {
+                        data.writeInterfaceToken(mDescriptor);
+                        data.writeInt(f0);
+                        data.writeStrongBinder(mCallback != null ? mCallback.asBinder() : null);
+                        mExtensionBinder.transact(TRANSACTION_SET_F0, data, null, IBinder.FLAG_ONEWAY);
+                    } finally {
+                        data.recycle();
+                    }
+                }
             }
         } catch (Exception e) {
             Slog.e(TAG, "Failed to set F0", e);
@@ -187,25 +308,24 @@ public class RichTapVibratorService {
      * Initializes RichTap driver parameters.
      */
     public void init() {
-        try {
-            IRichtapVibrator service = getRichtapService();
-            if (service != null) {
-                service.init(mCallback);
+        synchronized (this) {
+            if (ensureConnectedLocked()) {
+                initInternalLocked();
             }
-        } catch (Exception e) {
-            Slog.e(TAG, "Failed to init RichTap", e);
         }
     }
 
     /**
      * Returns true if the RichTap HAL service extension is connected and alive.
      */
-    public boolean isAvailable() {
-        return getRichtapService() != null;
+    public synchronized boolean isAvailable() {
+        return ensureConnectedLocked();
     }
 
     synchronized void resetHalServiceProxy() {
         sRichtapVibratorService = null;
+        mExtensionBinder = null;
+        mDescriptor = null;
     }
 
     private static final class VibHalDeathRecipient implements IBinder.DeathRecipient {

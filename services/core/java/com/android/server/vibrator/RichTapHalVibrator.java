@@ -48,6 +48,7 @@ final class RichTapHalVibrator implements HalVibrator {
     private final RichTapVibratorService mRichTap;
     private Callbacks mCallbacks;
 
+    private final int mVibratorId;
     private volatile VibratorInfo mCachedInfo;
     private volatile VibratorInfo mCachedBaseInfo;
     private volatile boolean mLastEffectWasShortRam = false;
@@ -61,13 +62,8 @@ final class RichTapHalVibrator implements HalVibrator {
                 return delegate;
             }
         }
-        RichTapVibratorService service = new RichTapVibratorService();
-        if (!service.isAvailable()) {
-            Slog.w(TAG, "RichTap HAL extension requested but not available; using delegate");
-            return delegate;
-        }
         Slog.i(TAG, "Wrapping HalVibrator with RichTapHalVibrator");
-        return new RichTapHalVibrator(delegate, handler, service);
+        return new RichTapHalVibrator(delegate, handler, new RichTapVibratorService());
     }
 
     RichTapHalVibrator(
@@ -77,6 +73,7 @@ final class RichTapHalVibrator implements HalVibrator {
         mDelegate = delegate;
         mHandler = handler;
         mRichTap = richTap;
+        mVibratorId = delegate.getInfo().getId();
     }
 
     @Override
@@ -205,7 +202,7 @@ final class RichTapHalVibrator implements HalVibrator {
                 if (mCallbacks != null) {
                     mHandler.postDelayed(() -> {
                         if (mCallbacks != null) {
-                            mCallbacks.onVibrationStepComplete(mDelegate.getInfo().getId(),
+                            mCallbacks.onVibrationStepComplete(mVibratorId,
                                     vibrationId, stepId);
                         }
                     }, duration);
