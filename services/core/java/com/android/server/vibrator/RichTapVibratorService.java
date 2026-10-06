@@ -57,11 +57,26 @@ public class RichTapVibratorService {
     }
 
     public RichTapVibratorService(@Nullable IRichtapCallback callback) {
-        mCallback = callback;
+        mCallback = callback != null ? callback : new IRichtapCallback.Stub() {
+            @Override
+            public void onCallback(int status) {
+                if (DEBUG) Slog.d(TAG, "RichTap callback status=" + status);
+            }
+
+            @Override
+            public int getInterfaceVersion() {
+                return IRichtapCallback.VERSION;
+            }
+
+            @Override
+            public String getInterfaceHash() {
+                return IRichtapCallback.HASH;
+            }
+        };
     }
 
     private synchronized boolean ensureConnectedLocked() {
-        if (mExtensionBinder != null && mExtensionBinder.isBinderAlive() && mExtensionBinder.pingBinder()) {
+        if (mExtensionBinder != null && mExtensionBinder.isBinderAlive()) {
             return true;
         }
         resetHalServiceProxy();
@@ -94,7 +109,9 @@ public class RichTapVibratorService {
                 } else {
                     sRichtapVibratorService = null;
                 }
-                mExtensionBinder.linkToDeath(new VibHalDeathRecipient(this), 0);
+                VibHalDeathRecipient deathRecipient = new VibHalDeathRecipient(this);
+                halBinder.linkToDeath(deathRecipient, 0);
+                mExtensionBinder.linkToDeath(deathRecipient, 0);
                 initInternalLocked();
                 return true;
             } else {
@@ -122,6 +139,7 @@ public class RichTapVibratorService {
             }
         } catch (Exception e) {
             Slog.e(TAG, "Failed to initialize RichTap actuator looper", e);
+            resetHalServiceProxy();
         }
     }
 
@@ -159,6 +177,7 @@ public class RichTapVibratorService {
             }
         } catch (Exception e) {
             Slog.e(TAG, "Failed to execute richTapPerform effectId=" + effectId, e);
+            resetHalServiceProxy();
         }
         return -1;
     }
@@ -187,6 +206,7 @@ public class RichTapVibratorService {
             }
         } catch (Exception e) {
             Slog.e(TAG, "Failed to execute richTapVibratorOn", e);
+            resetHalServiceProxy();
         }
     }
 
@@ -214,6 +234,7 @@ public class RichTapVibratorService {
             }
         } catch (Exception e) {
             Slog.e(TAG, "Failed to set amplitude", e);
+            resetHalServiceProxy();
         }
     }
 
@@ -249,6 +270,7 @@ public class RichTapVibratorService {
             }
         } catch (Exception e) {
             Slog.e(TAG, "Failed to execute richTapVibratorOff", e);
+            resetHalServiceProxy();
         }
     }
 
@@ -275,6 +297,7 @@ public class RichTapVibratorService {
             }
         } catch (Exception e) {
             Slog.e(TAG, "Failed to set dynamic scale", e);
+            resetHalServiceProxy();
         }
     }
 
@@ -301,6 +324,7 @@ public class RichTapVibratorService {
             }
         } catch (Exception e) {
             Slog.e(TAG, "Failed to set F0", e);
+            resetHalServiceProxy();
         }
     }
 
