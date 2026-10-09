@@ -452,7 +452,16 @@ public final class RichTapVibrationEffect {
                 return 330L;
             case EFFECT_OOS_MESSAGE_RAPID:
                 return 430L;
-            // Standard AOSP effects fallback
+            default:
+                return 30L;
+        }
+    }
+
+    /**
+     * Gets fallback playback duration for standard AOSP prebaked effects.
+     */
+    public static long getAospEffectDuration(int effectId) {
+        switch (effectId) {
             case VibrationEffect.EFFECT_CLICK:
             case VibrationEffect.EFFECT_POP:
                 return 40L;
