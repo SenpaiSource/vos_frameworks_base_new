@@ -31,6 +31,7 @@ import static com.android.systemui.statusbar.notification.stack.NotificationStac
 import static com.android.systemui.statusbar.notification.stack.StackStateAnimator.ANIMATION_DURATION_STANDARD;
 
 import android.animation.ObjectAnimator;
+import android.content.Context;
 import android.content.res.Configuration;
 import android.graphics.Point;
 import android.graphics.RectF;
@@ -945,9 +946,10 @@ public class NotificationStackScrollLayoutController implements Dumpable {
         mView.setClearAllListener((selection) -> {
             mUiEventLogger.log(
                     NotificationPanelEvent.fromSelection(selection));
-            if (mContext.getResources().getBoolean(
+            Context context = mView.getContext();
+            if (context != null && context.getResources().getBoolean(
                     com.android.internal.R.bool.config_usesRichtapVibration)) {
-                Vibrator vib = mContext.getSystemService(Vibrator.class);
+                Vibrator vib = context.getSystemService(Vibrator.class);
                 if (vib != null) {
                     vib.vibrate(VibrationEffect.get(
                             RichTapVibrationEffect.EFFECT_OOS_CLEAR_NOTIFICATIONS, false));
