@@ -51,6 +51,8 @@ public class RichTapVibratorService {
     private volatile IRichtapVibrator sRichtapVibratorService = null;
     private volatile IBinder mExtensionBinder = null;
     private volatile String mDescriptor = null;
+    private volatile boolean mExtensionUnavailable = false;
+    private static boolean sLoggedExtensionMissing = false;
 
     public RichTapVibratorService() {
         this(null);
@@ -78,6 +80,9 @@ public class RichTapVibratorService {
     private synchronized boolean ensureConnectedLocked() {
         if (mExtensionBinder != null && mExtensionBinder.isBinderAlive()) {
             return true;
+        }
+        if (mExtensionUnavailable) {
+            return false;
         }
         resetHalServiceProxy();
 
@@ -115,7 +120,15 @@ public class RichTapVibratorService {
                 initInternalLocked();
                 return true;
             } else {
-                Slog.e(TAG, "RichTap extension binder is null");
+                if (!sLoggedExtensionMissing) {
+                    Slog.i(TAG, "RichTap extension binder is null, falling back to standard IVibrator HAL");
+                    sLoggedExtensionMissing = true;
+                }
+                mExtensionUnavailable = true;
+                try {
+                    halBinder.linkToDeath(new VibHalDeathRecipient(this), 0);
+                } catch (Exception ignored) {
+                }
             }
         } catch (Exception e) {
             Slog.e(TAG, "Failed to connect to RichTap vibrator extension", e);
@@ -350,6 +363,7 @@ public class RichTapVibratorService {
         sRichtapVibratorService = null;
         mExtensionBinder = null;
         mDescriptor = null;
+        mExtensionUnavailable = false;
     }
 
     private static final class VibHalDeathRecipient implements IBinder.DeathRecipient {
