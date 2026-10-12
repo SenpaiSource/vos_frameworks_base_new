@@ -40,5 +40,5 @@ data class PluginEnvironment(
 ) {
     val isEng: Boolean = variant == BuildVariant.Eng
     val isTestMode: Boolean
-        get() = isTestHarness || (isDebuggable && isDebugPropSet)
+        get() = isTestHarness || (isDebuggable && isDebugPropSet) || isDebugPropSet
 }
