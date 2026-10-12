@@ -54,6 +54,7 @@ class PluginInstance<T : Plugin>(
     override val componentName: ComponentName,
     private val pluginFactory: PluginFactory<T>,
     private val env: PluginEnvironment,
+    private val isPrivileged: Boolean = false,
 ) : PluginLifecycleManager<T>, ProtectedPluginListener {
     private val debugName = componentName.shortClassName
     private val tag = "$TAG[$debugName]@${hashCode()}"
@@ -112,7 +113,7 @@ class PluginInstance<T : Plugin>(
     private fun loadFailure(): Boolean {
         val sharedPrefs = getSharedPreferences()
 
-        if (env.isEng || env.isTestMode) {
+        if (env.isEng || env.isTestMode || isPrivileged) {
             hasError = false
             return false
         }
@@ -300,7 +301,8 @@ class PluginInstance<T : Plugin>(
             pluginClass: Class<T>,
             listener: PluginListener<T>,
         ): PluginInstance<T>? {
-            if (!env.isDebuggable && !packages.isPackagePrivileged(pluginAppInfo.packageName)) {
+            val isPrivileged = packages.isPackagePrivileged(pluginAppInfo.packageName)
+            if (!env.isDebuggable && !isPrivileged) {
                 logger.w({ "Cannot build non-privileged plugin. Src: $str1, pkg: $str2" }) {
                     str1 = pluginAppInfo.sourceDir
                     str2 = pluginAppInfo.packageName
@@ -323,6 +325,7 @@ class PluginInstance<T : Plugin>(
                     env,
                 ),
                 env,
+                isPrivileged,
             )
         }
     }
