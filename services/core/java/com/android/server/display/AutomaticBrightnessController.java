@@ -918,6 +918,42 @@ public class AutomaticBrightnessController {
                 ? mDarkeningLightDebounceConfigIdle : mDarkeningLightDebounceConfig);
     }
 
+    // Stock large change region nodes and piecewise linear coefficients
+    private static final float[] LARGE_CHANGE_LEFT_NODES = {30.0f, 300.0f, 1080.0f, Float.MAX_VALUE};
+    private static final float[] LARGE_CHANGE_LEFT_COEFFS = {4.0f, 6.0f, 1.6f, 2.0f};
+    private static final float[] LARGE_CHANGE_LEFT_CONSTS = {0.0f, 2.5f, -135.0f, 0.0f};
+
+    private static final float[] LARGE_CHANGE_RIGHT_NODES = {20.0f, 35.0f, 500.0f, Float.MAX_VALUE};
+    private static final float[] LARGE_CHANGE_RIGHT_COEFFS = {2.5f, 10.0f, 2.0f, 1.5f};
+    private static final float[] LARGE_CHANGE_RIGHT_CONSTS = {0.0f, -150.0f, 130.0f, 380.0f};
+
+    // Minimum ambient lux required to accept a brightening transition (under-screen sensor floor)
+    private static final float STABLE_RIGHT_MIN_LUX = 5.01f;
+
+    private static float getLargeChangeValueLeft(float currentLux) {
+        if (currentLux <= 0.0f) {
+            return 0.0f;
+        }
+        for (int i = 0; i < LARGE_CHANGE_LEFT_NODES.length; i++) {
+            if (currentLux <= LARGE_CHANGE_LEFT_NODES[i]) {
+                float val = (currentLux / LARGE_CHANGE_LEFT_COEFFS[i]) + LARGE_CHANGE_LEFT_CONSTS[i];
+                return Math.max(0.0f, val);
+            }
+        }
+        return 0.0f;
+    }
+
+    private static float getLargeChangeValueRight(float currentLux) {
+        for (int i = 0; i < LARGE_CHANGE_RIGHT_NODES.length; i++) {
+            if (currentLux <= LARGE_CHANGE_RIGHT_NODES[i]) {
+                float val = (LARGE_CHANGE_RIGHT_COEFFS[i] * currentLux) + LARGE_CHANGE_RIGHT_CONSTS[i];
+                val = Math.min(val, currentLux + 2000.0f);
+                return Math.max(STABLE_RIGHT_MIN_LUX, val);
+            }
+        }
+        return currentLux + 2000.0f;
+    }
+
     private void updateAmbientLux() {
         long time = mClock.getSensorEventScaleTime();
         mAmbientLightRingBuffer.prune(time - mAmbientLightHorizonLong);
@@ -963,29 +999,46 @@ public class AutomaticBrightnessController {
         mSlowAmbientLux = calculateAmbientLux(time, mAmbientLightHorizonLong);
         mFastAmbientLux = calculateAmbientLux(time, mAmbientLightHorizonShort);
 
+        final float latestLux = mAmbientLightRingBuffer.size() > 0
+                ? mAmbientLightRingBuffer.getLux(mAmbientLightRingBuffer.size() - 1)
+                : mFastAmbientLux;
+
+        // Stock large change evaluation
+        final float largeLeft = getLargeChangeValueLeft(mAmbientLux);
+        final float largeRight = getLargeChangeValueRight(mAmbientLux);
+        final boolean isLargeDarken = mFastAmbientLux <= largeLeft || latestLux <= largeLeft;
+        final boolean isLargeBrighten = mFastAmbientLux >= largeRight || latestLux >= largeRight;
+
         // Fast brightening acceleration:
-        // Detect monotonically increasing ambient light trend (>= 2 samples) to react immediately
-        // once debounce elapses, avoiding slow convergence delay over the long horizon.
+        // Detect monotonically increasing ambient light trend (>= 2 samples) or large brighten
         final boolean isUpwardTrend = mAmbientLightRingBuffer.isMonotonicIncreasing(2);
-        final boolean shouldFastBrighten = isUpwardTrend
-                && (mFastAmbientLux >= mAmbientBrighteningThreshold
-                        || (mAmbientLightRingBuffer.size() > 0
-                                && mAmbientLightRingBuffer.getLux(mAmbientLightRingBuffer.size() - 1)
-                                        >= mAmbientBrighteningThreshold))
+        final boolean shouldFastBrighten = (isLargeBrighten || isUpwardTrend)
+                && (mFastAmbientLux >= mAmbientBrighteningThreshold || latestLux >= mAmbientBrighteningThreshold)
                 && nextBrightenTransition <= time;
+
+        // Fast darkening acceleration:
+        // Detect large darkening transition into dark room or downward trend into low lux
+        final boolean isPitchDark = latestLux <= 2.0f && mFastAmbientLux <= 2.0f;
+        final boolean isDownwardTrend = mAmbientLightRingBuffer.isMonotonicDecreasing(2);
+        final boolean shouldFastDarken = (isLargeDarken || isPitchDark)
+                && (isDownwardTrend || isPitchDark)
+                && (mFastAmbientLux <= mAmbientDarkeningThreshold || latestLux <= mAmbientDarkeningThreshold)
+                && nextDarkenTransition <= time;
 
         if ((shouldFastBrighten
                 || (mSlowAmbientLux >= mAmbientBrighteningThreshold
                         && mFastAmbientLux >= mAmbientBrighteningThreshold
                         && nextBrightenTransition <= time))
+                || (shouldFastDarken
                 || (mSlowAmbientLux <= mAmbientDarkeningThreshold
                         && mFastAmbientLux <= mAmbientDarkeningThreshold
-                        && nextDarkenTransition <= time)) {
+                        && nextDarkenTransition <= time))) {
             mPreThresholdLux = mAmbientLux;
             float targetLux = mFastAmbientLux;
             if (shouldFastBrighten && mAmbientLightRingBuffer.size() > 0) {
-                float latestLux = mAmbientLightRingBuffer.getLux(mAmbientLightRingBuffer.size() - 1);
                 targetLux = Math.max(targetLux, 0.8f * latestLux + 0.2f * mFastAmbientLux);
+            } else if (shouldFastDarken && mAmbientLightRingBuffer.size() > 0) {
+                targetLux = Math.min(targetLux, 0.8f * latestLux + 0.2f * mFastAmbientLux);
             }
             setAmbientLux(targetLux);
             if (mLoggingEnabled) {
@@ -1670,6 +1723,21 @@ public class AutomaticBrightnessController {
                 lastLux = currentLux;
             }
             return getLux(mCount - 1) > getLux(mCount - count);
+        }
+
+        public boolean isMonotonicDecreasing(int count) {
+            if (mCount < count || count <= 1) {
+                return false;
+            }
+            float lastLux = getLux(mCount - count);
+            for (int i = mCount - count + 1; i < mCount; i++) {
+                float currentLux = getLux(i);
+                if (currentLux > lastLux) {
+                    return false;
+                }
+                lastLux = currentLux;
+            }
+            return getLux(mCount - 1) < getLux(mCount - count);
         }
 
         @Override
