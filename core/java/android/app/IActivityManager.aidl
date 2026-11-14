@@ -1094,4 +1094,9 @@ interface IActivityManager {
     String getSpoofTrickyStoreTarget();
     String getSpoofTrickyStoreKeyBox();
     String getSpoofTrickyStorePatch();
+
+    Bundle getDuckRkpState();
+    void setDuckRkpEnabled(boolean enabled);
+    void provisionDuckRkp();
+    void setSpoofTrickyStoreKeyBox(in String keybox);
 }

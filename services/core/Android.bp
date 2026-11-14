@@ -236,6 +236,7 @@ java_library_static {
         "android.hidl.manager-V1.2-java",
         "android.media.audiopolicy-aconfig-java",
         "cbor-java",
+        "vendor.lunaris.duckrkp-V1-java",
         "com.android.media.audio-aconfig-java",
         "statsd_audio_java_gen",
         "icu4j_calendar_astronomer",

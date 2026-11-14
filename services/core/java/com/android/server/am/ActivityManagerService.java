@@ -21391,6 +21391,72 @@ public class ActivityManagerService extends IActivityManager.Stub
         return service != null ? service.getTrickyStorePatch() : null;
     }
 
+    private void enforceDuckRkpPermission() {
+        mContext.enforceCallingOrSelfPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS,
+                "Device RKP requires WRITE_SECURE_SETTINGS");
+        if (UserHandle.getUserId(Binder.getCallingUid()) != UserHandle.USER_SYSTEM) {
+            throw new SecurityException("Device RKP is managed by the system user");
+        }
+    }
+
+    @Override
+    public Bundle getDuckRkpState() {
+        enforceDuckRkpPermission();
+        long token = Binder.clearCallingIdentity();
+        try {
+            final AxSpoofManagerInternal service = getAxSpoofManager();
+            return service != null && service.getDuckRkpManager() != null
+                    ? service.getDuckRkpManager().getState() : new Bundle();
+        } finally {
+            Binder.restoreCallingIdentity(token);
+        }
+    }
+
+    @Override
+    public void setDuckRkpEnabled(boolean enabled) {
+        enforceDuckRkpPermission();
+        long token = Binder.clearCallingIdentity();
+        try {
+            final AxSpoofManagerInternal service = getAxSpoofManager();
+            if (service != null && service.getDuckRkpManager() != null) {
+                service.getDuckRkpManager().setEnabled(enabled);
+            }
+        } finally {
+            Binder.restoreCallingIdentity(token);
+        }
+    }
+
+    @Override
+    public void provisionDuckRkp() {
+        enforceDuckRkpPermission();
+        long token = Binder.clearCallingIdentity();
+        try {
+            final AxSpoofManagerInternal service = getAxSpoofManager();
+            if (service != null && service.getDuckRkpManager() != null) {
+                service.getDuckRkpManager().provision();
+            }
+        } finally {
+            Binder.restoreCallingIdentity(token);
+        }
+    }
+
+    @Override
+    public void setSpoofTrickyStoreKeyBox(String keybox) {
+        enforceDuckRkpPermission();
+        long token = Binder.clearCallingIdentity();
+        try {
+            final AxSpoofManagerInternal service = getAxSpoofManager();
+            if (service != null && service.getDuckRkpManager() != null) {
+                service.getDuckRkpManager().setImportedKeybox(keybox);
+            } else {
+                Settings.Secure.putStringForUser(mContext.getContentResolver(),
+                        Settings.Secure.SPOOF_TRICKYSTORE_KEYBOX, keybox, UserHandle.USER_SYSTEM);
+            }
+        } finally {
+            Binder.restoreCallingIdentity(token);
+        }
+    }
+
     // uid indexed collection of lists of ANR warning callback.
     @GuardedBy("mAnrWarningCallbacks")
     private final SparseArray<List<IAnrWarningCallback>> mAnrWarningCallbacks = new SparseArray<>();
