@@ -15765,6 +15765,11 @@ public final class Settings {
         /**
          * @hide
          */
+        public static final String SPOOF_DUCK_RKP_ENABLED = "spoof_duck_rkp_enabled";
+
+        /**
+         * @hide
+         */
         public static final String SPOOF_TRICKYSTORE_PATCH = "spoof_trickystore_patch";
     }
 

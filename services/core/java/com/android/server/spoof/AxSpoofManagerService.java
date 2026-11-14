@@ -29,6 +29,7 @@ import android.util.Slog;
 
 import com.android.internal.os.BackgroundThread;
 import com.android.server.SystemService;
+import com.android.server.security.rkp.DuckRkpManager;
 
 import java.util.List;
 import java.util.Map;
@@ -47,7 +48,9 @@ public final class AxSpoofManagerService extends SystemService {
             Settings.Secure.SPOOF_GAMEPROPS_CONFIG,
             Settings.Secure.SPOOF_TRICKYSTORE_TARGET,
             Settings.Secure.SPOOF_TRICKYSTORE_KEYBOX,
+            Settings.Secure.SPOOF_DUCK_RKP_ENABLED,
             Settings.Secure.SPOOF_TRICKYSTORE_PATCH,
+            "spoof_trickystore_enabled",
     };
 
     private final ContentResolver mResolver;
@@ -57,6 +60,7 @@ public final class AxSpoofManagerService extends SystemService {
     private ContentObserver mObserver;
     private volatile boolean mReady;
     private volatile int mUserId = UserHandle.USER_SYSTEM;
+    private volatile DuckRkpManager mDuckRkp;
 
     public AxSpoofManagerService(Context context) {
         super(context);
@@ -93,6 +97,11 @@ public final class AxSpoofManagerService extends SystemService {
             return;
         }
         mUserId = ActivityManager.getCurrentUser();
+        mDuckRkp = new DuckRkpManager(getContext(), BackgroundThread.getHandler(), () -> {
+            BackgroundThread.getHandler().post(() -> {
+                refreshKey(Settings.Secure.SPOOF_TRICKYSTORE_KEYBOX);
+            });
+        });
         refreshAll();
         registerObserver();
         mReady = true;
@@ -125,6 +134,11 @@ public final class AxSpoofManagerService extends SystemService {
                     restartPhotos();
                 } else if (Settings.Secure.SPOOF_TRICKYSTORE_KEYBOX.equals(key)) {
                     maybeSeedDefaultTargets(true);
+                } else if (Settings.Secure.SPOOF_DUCK_RKP_ENABLED.equals(key)
+                        || "spoof_trickystore_enabled".equals(key)) {
+                    if (mDuckRkp != null) {
+                        mDuckRkp.onSettingsChanged("spoof_trickystore_enabled".equals(key));
+                    }
                 }
             }
         };
@@ -268,7 +282,18 @@ public final class AxSpoofManagerService extends SystemService {
         }
 
         @Override
+        public DuckRkpManager getDuckRkpManager() {
+            return mDuckRkp;
+        }
+
+        @Override
         public String getTrickyStoreKeyBox() {
+            if (mDuckRkp != null) {
+                String rkpKeybox = mDuckRkp.getKeybox();
+                if (rkpKeybox != null) {
+                    return rkpKeybox;
+                }
+            }
             return getCached(Settings.Secure.SPOOF_TRICKYSTORE_KEYBOX);
         }
 
