@@ -301,7 +301,10 @@ public class TrickyStoreService {
         String raw = fetched.value;
         if (raw == null || raw.trim().isEmpty()) {
             // A successful empty response means the config was explicitly deleted.
-            mKeyBoxManager.clear();
+            if (mKeyBoxManager.hasKeyboxes()) {
+                mKeyBoxManager.clear();
+                AttestationUtils.invalidateFallbackBootState();
+            }
             mLastKeyboxFingerprint = null;
             return;
         }
@@ -326,6 +329,9 @@ public class TrickyStoreService {
             }
             if (mKeyBoxManager.hasKeyboxes()) {
                 mLastKeyboxFingerprint = fingerprint;
+                // Validators used by Duck RKP must not invalidate active boot state.
+                // Only a successful replacement of this service's keybox does so.
+                AttestationUtils.invalidateFallbackBootState();
                 Log.i(TAG, "Keybox updated successfully");
             } else {
                 mLastKeyboxFingerprint = null;

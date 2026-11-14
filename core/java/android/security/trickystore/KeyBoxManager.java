@@ -89,7 +89,6 @@ public class KeyBoxManager {
         // Publish a fresh map instead of clearing the map a concurrent attestation
         // might already be reading.
         mKeyboxes = Collections.emptyMap();
-        AttestationUtils.invalidateFallbackBootState();
         Log.i(TAG, "Keyboxes cleared");
     }
 
@@ -119,7 +118,6 @@ public class KeyBoxManager {
         Map<String, KeyBox> next = new java.util.HashMap<>();
         if (!parseInto(next, xmlContent)) return false;
         mKeyboxes = Collections.unmodifiableMap(next);
-        AttestationUtils.invalidateFallbackBootState();
         Log.i(TAG, "Parsed " + next.size() + " validated keyboxes");
         return true;
     }
