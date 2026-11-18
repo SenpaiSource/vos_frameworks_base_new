@@ -181,6 +181,9 @@ public class AutomaticBrightnessStrategy implements DisplayBrightnessStrategy{
                 && !autoBrightnessEnabledScreenOn
                 && !autoBrightnessEnabledInDoze
                 && !mIsAutoBrightnessOverriddenInDoze;
+        if (mAutoBrightnessDisabledDueToDisplayOff) {
+            mAppliedAutoBrightness = false;
+        }
         final int autoBrightnessState = mIsAutoBrightnessEnabled
                 && brightnessReason != BrightnessReason.REASON_FOLLOWER
                 ? AutomaticBrightnessController.AUTO_BRIGHTNESS_ENABLED
@@ -218,9 +221,13 @@ public class AutomaticBrightnessStrategy implements DisplayBrightnessStrategy{
         }
 
         // A change is slow when the auto-brightness was already applied, and there are no new
-        // auto-brightness adjustments from an external client(e.g. Moving the slider). As such,
+        // auto-brightness adjustments from an external client(e.g. Moving the slider),
+        // and neither boost mode nor large brightening is active. As such,
         // it is important to record this value before applying the current auto-brightness.
-        mIsSlowChange = hasAppliedAutoBrightness() && !getAutoBrightnessAdjustmentChanged();
+        final boolean fastRamp = mAutomaticBrightnessController != null
+                && mAutomaticBrightnessController.hasFastRampRate();
+        mIsSlowChange = hasAppliedAutoBrightness() && !getAutoBrightnessAdjustmentChanged()
+                && !fastRamp;
         setAutoBrightnessApplied(isValid);
         return isValid;
     }
